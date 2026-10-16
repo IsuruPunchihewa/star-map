@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>AETHERIS - AI Sky Observatory</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome for Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Google Fonts: Space Mono & Inter -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #030303;
+      color: #e5e5e5;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .mono {
+      font-family: 'Space Mono', monospace;
+    }
+    canvas {
+      touch-action: none;
+    }
+    /* Custom Scrollbar for HUD panels */
+    ::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(10, 10, 10, 0.8);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #444;
+      border-radius: 2px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #888;
+    }
+    /* Glassmorphism visual style */
+    .glass-panel {
+      background: rgba(8, 8, 8, 0.75);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7);
+    }
+    .glass-panel-light {
+      background: rgba(18, 18, 18, 0.85);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+    }
+    /* Scanline effect overlay */
+    .scanlines {
+      background: linear-gradient(
+        rgba(18, 16, 16, 0) 50%, 
+        rgba(0, 0, 0, 0.25) 50%
+      );
+      background-size: 100% 4px;
+      pointer-events: none;
+    }
+    /* Glowing reticle animation */
+    @keyframes pulse-ring {
+      0% { transform: scale(0.8) rotate(0deg); opacity: 0.3; }
+      50% { transform: scale(1.1) rotate(180deg); opacity: 1; }
+      100% { transform: scale(0.8) rotate(360deg); opacity: 0.3; }
+    }
+    .reticle-pulse {
+      animation: pulse-ring 3s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="w-screen h-screen relative bg-black text-white antialiased">
+
+  <!-- Scanlines visual layer -->
+  <div class="scanlines absolute inset-0 z-10 opacity-30"></div>
+
+  <!-- Interactive Canvas -->
+  <canvas id="observatoryCanvas" class="absolute inset-0 z-0 cursor-crosshair w-full h-full"></canvas>
+
+  <!-- TOP TELEMETRY BAR -->
+  <header class="absolute top-3 left-3 right-3 z-20 flex justify-between items-center glass-panel px-4 py-2.5 rounded-lg text-xs mono border-zinc-800">
+    <div class="flex items-center space-x-4">
+      <div class="flex items-center space-x-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-white animate-pulse"></span>
+        <span class="font-bold tracking-widest text-sm text-white">AETHERIS.AI</span>
+      </div>
+      <div class="hidden sm:flex space-x-4 text-zinc-400 border-l border-zinc-800 pl-4">
+        <span>UTC: <strong id="clockUTC" class="text-zinc-200">00:00:00</strong></span>
+        <span>LST: <strong id="clockLST" class="text-zinc-200">12:34:56</strong></span>
+      </div>
+    </div>
+    
+    <!-- Dynamic Telemetry Coordinates -->
+    <div class="hidden md:flex space-x-6 text-zinc-400">
+      <div>RA: <span id="telemetryRA" class="text-white">00h 00m 00s</span></div>
+      <div>DEC: <span id="telemetryDEC" class="text-white">+00° 00' 00"</span></div>
+      <div>ZOOM: <span id="telemetryZoom" class="text-white">1.0x</span></div>
+      <div>OBJECTS: <span id="telemetryCount" class="text-white">0</span></div>
+    </div>
+
+    <!-- Right Controls Header -->
+    <div class="flex items-center space-x-2">
+      <button id="audioToggleBtn" title="Toggle Celestial Drone Synthesizer" class="px-3 py-1.5 rounded glass-panel hover:bg-zinc-800 transition flex items-center space-x-1.5 text-zinc-300">
+        <i id="audioIcon" class="fas font-sm fa-volume-xmark"></i>
+        <span class="hidden sm:inline">AUDIO</span>
+      </button>
+      <button id="aiChatToggleBtn" title="Toggle AI Astro-Assistant" class="px-3 py-1.5 rounded glass-panel hover:bg-zinc-800 transition flex items-center space-x-1.5 text-white border-zinc-500">
+        <i class="fas fa-brain text-xs"></i>
+        <span>AI ASTRO</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- FLOATING CAMERA CONTROL HUD (BOTTOM LEFT) -->
+  <div class="absolute bottom-6 left-6 z-20 flex flex-col space-y-2 glass-panel p-2 rounded-xl border-zinc-800">
+    <button id="btnZoomIn" title="Zoom In (+)" class="w-10 h-10 rounded-lg glass-panel hover:bg-zinc-800 flex items-center justify-center transition active:scale-95 text-white">
+      <i class="fas fa-plus"></i>
+    </button>
+    <button id="btnZoomOut" title="Zoom Out (-)" class="w-10 h-10 rounded-lg glass-panel hover:bg-zinc-800 flex items-center justify-center transition active:scale-95 text-white">
+      <i class="fas fa-minus"></i>
+    </button>
+    <div class="w-full h-px bg-zinc-800 my-1"></div>
+    <button id="btnResetView" title="Reset Camera View" class="w-10 h-10 rounded-lg glass-panel hover:bg-zinc-800 flex items-center justify-center transition active:scale-95 text-zinc-300">
+      <i class="fas fa-compress"></i>
+    </button>
+    <button id="btnRecenter" title="Recenter Observatory Target" class="w-10 h-10 rounded-lg glass-panel hover:bg-zinc-800 flex items-center justify-center transition active:scale-95 text-zinc-300">
+      <i class="fas fa-crosshairs"></i>
+    </button>
+  </div>
+
+  <!-- STAR INSPECTOR MODAL / DRAWER (BOTTOM RIGHT / SIDE SLIDE) -->
+  <div id="inspectorDrawer" class="absolute bottom-6 right-6 z-20 w-80 sm:w-96 max-h-[80vh] glass-panel rounded-xl p-5 border-zinc-700 flex flex-col transition-all duration-300 transform translate-y-full opacity-0 pointer-events-none overflow-y-auto">
+    <!-- Header -->
+    <div class="flex justify-between items-start border-b border-zinc-800 pb-3 mb-4">
+      <div>
+        <div class="text-[10px] mono tracking-widest text-zinc-400 uppercase">Target Acquisition</div>
+        <h2 id="starName" class="text-2xl font-bold tracking-tight text-white mt-0.5">Sirius</h2>
+        <div id="starBayer" class="text-xs mono text-zinc-400">Alpha Canis Majoris</div>
+      </div>
+      <button id="closeInspectorBtn" class="w-7 h-7 rounded-full glass-panel hover:bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white transition">
+        <i class="fas fa-times text-xs"></i>
+      </button>
+    </div>
+
+    <!-- Key Metrics Grid -->
+    <div class="grid grid-cols-2 gap-2 text-xs mono mb-4">
+      <div class="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-800">
+        <div class="text-zinc-500 text-[9px] uppercase">Spectral Class</div>
+        <div id="starClass" class="text-white font-bold text-sm mt-0.5">A1V Main Seq</div>
+      </div>
+      <div class="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-800">
+        <div class="text-zinc-500 text-[9px] uppercase">Constellation</div>
+        <div id="starConst" class="text-white font-bold text-sm mt-0.5">Canis Major</div>
+      </div>
+      <div class="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-800">
+        <div class="text-zinc-500 text-[9px] uppercase">App. Magnitude</div>
+        <div id="starAppMag" class="text-white font-bold mt-0.5">-1.46</div>
+      </div>
+      <div class="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-800">
+        <div class="text-zinc-500 text-[9px] uppercase">Distance</div>
+        <div id="starDistance" class="text-white font-bold mt-0.5">8.60 LY</div>
+      </div>
+      <div class="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-800">
+        <div class="text-zinc-500 text-[9px] uppercase">Temperature</div>
+        <div id="starTemp" class="text-white font-bold mt-0.5">9,940 K</div>
+      </div>
+      <div class="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-800">
+        <div class="text-zinc-500 text-[9px] uppercase">Luminosity</div>
+        <div id="starLum" class="text-white font-bold mt-0.5">25.4 L☉</div>
+      </div>
+    </div>
+
+    <!-- Secondary Metrics -->
+    <div class="bg-zinc-950/60 p-3 rounded-lg border border-zinc-800/80 text-xs mono space-y-1.5 mb-4 text-zinc-300">
+      <div class="flex justify-between">
+        <span class="text-zinc-500">Mass / Radius:</span>
+        <span id="starMassRadius" class="text-white">2.06 M☉ / 1.71 R☉</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-zinc-500">RA / Dec:</span>
+        <span id="starRADEC" class="text-white">06h 45m / -16° 42'</span>
+      </div>
+    </div>
+
+    <!-- Dynamic AI Deep Sky Intelligence Section -->
+    <div class="border-t border-zinc-800 pt-3">
+      <div class="flex items-center space-x-2 mb-2">
+        <i class="fas fa-sparkles text-xs text-white"></i>
+        <span class="text-xs font-bold tracking-wider mono text-white">GEMINI ASTRO-ANALYSIS</span>
+      </div>
+      <div id="aiStarAnalysis" class="text-xs text-zinc-300 leading-relaxed bg-zinc-900/40 p-3 rounded-lg border border-zinc-800 min-h-[90px] flex items-center justify-center">
+        <span class="text-zinc-500 italic text-center">Click or tap any star to trigger dynamic AI deep-sky synthesis...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI ASTRO-PHYSICS CHAT DRAWER (RIGHT SIDE SLIDE) -->
+  <div id="aiChatDrawer" class="absolute top-16 right-3 bottom-6 z-30 w-80 sm:w-96 glass-panel-light rounded-xl p-4 flex flex-col transition-all duration-300 transform translate-x-full opacity-0 pointer-events-none border-zinc-700">
+    <!-- Chat Header -->
+    <div class="flex justify-between items-center border-b border-zinc-800 pb-3 mb-3">
+      <div class="flex items-center space-x-2">
+        <div class="w-2 h-2 rounded-full bg-white animate-ping"></div>
+        <h3 class="font-bold text-sm tracking-wide text-white mono">ASTRO-AI ASSISTANT</h3>
+      </div>
+      <button id="closeAiChatBtn" class="w-6 h-6 rounded-full glass-panel hover:bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white transition">
+        <i class="fas fa-times text-xs"></i>
+      </button>
+    </div>
+
+    <!-- Chat Messages Container -->
+    <div id="chatMessages" class="flex-1 overflow-y-auto space-y-3 pr-1 text-xs mono my-2">
+      <div class="bg-zinc-900/80 p-3 rounded-lg border border-zinc-800 text-zinc-300">
+        <span class="text-white font-bold block mb-1">SYSTEM ONLINE</span>
+        Greetings, Observer. I am connected to the AETHERIS deep sky observatory feeds. Ask me anything about constellations, astrophysics, black holes, or stellar evolution.
+      </div>
+    </div>
+
+    <!-- Chat Input Form -->
+    <form id="aiChatForm" class="mt-2 relative flex items-center">
+      <input id="aiChatInput" type="text" placeholder="Inquire about celestial mechanics..." class="w-full bg-zinc-950/90 text-white text-xs mono px-3 py-2.5 rounded-lg border border-zinc-700 focus:outline-none focus:border-white transition pr-10">
+      <button type="submit" class="absolute right-2 text-zinc-400 hover:text-white p-1.5 transition">
+        <i class="fas fa-arrow-up text-xs"></i>
+      </button>
+    </form>
+  </div>
+
+  <!-- JAVASCRIPT LOGIC -->
+  <script>
+    /**
+     * MAJOR STAR DATABASE
+     * Comprehensive real astronomical data combined with coordinate offsets for canvas rendering
+     */
+    const MAJOR_STARS = [
+      { id: "sirius", name: "Sirius", bayer: "Alpha Canis Majoris", const: "Canis Major", class: "A1V Super white", appMag: -1.46, absMag: 1.42, dist: "8.6 LY", temp: "9,940 K", lum: "25.4 L☉", mass: "2.06 M☉", radius: "1.71 R☉", ra: "06h 45m 08.9s", dec: "-16° 42' 58\"", x: 0, y: 120, size: 4.5 },
+      { id: "betelgeuse", name: "Betelgeuse", bayer: "Alpha Orionis", const: "Orion", class: "M1-M2 Ia-ab Red Supergiant", appMag: 0.50, absMag: -5.85, dist: "642.5 LY", temp: "3,500 K", lum: "126,000 L☉", mass: "16.5 M☉", radius: "764 R☉", ra: "05h 55m 10.3s", dec: "+07° 24' 25\"", x: -280, y: -180, size: 5.5 },
+      { id: "rigel", name: "Rigel", bayer: "Beta Orionis", const: "Orion", class: "B8Ia Blue-White Supergiant", appMag: 0.13, absMag: -7.84, dist: "860 LY", temp: "12,100 K", lum: "120,000 L☉", mass: "21.0 M☉", radius: "78.9 R☉", ra: "05h 14m 32.3s", dec: "-08° 12' 06\"", x: -210, y: -90, size: 5.0 },
+      { id: "polaris", name: "Polaris", bayer: "Alpha Ursae Minoris", const: "Ursa Minor", class: "F7Ib Yellow Supergiant", appMag: 1.98, absMag: -3.6, dist: "433 LY", temp: "6,015 K", lum: "1,260 L☉", mass: "5.4 M☉", radius: "37.5 R☉", ra: "02h 31m 49.1s", dec: "+89° 15' 51\"", x: 50, y: -420, size: 3.8 },
+      { id: "vega", name: "Vega", bayer: "Alpha Lyrae", const: "Lyra", class: "A0V Main Sequence White", appMag: 0.03, absMag: 0.58, dist: "25.0 LY", temp: "9,602 K", lum: "40.12 L☉", mass: "2.13 M☉", radius: "2.36 R☉", ra: "18h 36m 56.3s", dec: "+38° 47' 01\"", x: 320, y: -300, size: 4.2 },
+      { id: "arcturus", name: "Arcturus", bayer: "Alpha Boötis", const: "Boötes", class: "K1.5III Red Giant", appMag: -0.05, absMag: -0.30, dist: "36.7 LY", temp: "4,286 K", lum: "170 L☉", mass: "1.08 M☉", radius: "25.4 R☉", ra: "14h 15m 39.7s", dec: "+19° 10' 56\"", x: 220, y: -120, size: 4.4 },
+      { id: "aldebaran", name: "Aldebaran", bayer: "Alpha Tauri", const: "Taurus", class: "K5III Orange Giant", appMag: 0.85, absMag: -0.63, dist: "65.3 LY", temp: "3,910 K", lum: "439 L☉", mass: "1.16 M☉", radius: "44.2 R☉", ra: "04h 35m 55.2s", dec: "+16° 30' 33\"", x: -380, y: -80, size: 4.3 },
+      { id: "antares", name: "Antares", bayer: "Alpha Scorpii", const: "Scorpius", class: "M1.5Iab Red Supergiant", appMag: 0.96, absMag: -5.28, dist: "550 LY", temp: "3,660 K", lum: "75,000 L☉", mass: "12.0 M☉", radius: "680 R☉", ra: "16h 29m 24.4s", dec: "-26° 25' 55\"", x: 410, y: 280, size: 5.2 },
+      { id: "capella", name: "Capella", bayer: "Alpha Aurigae", const: "Auriga", class: "G3III Yellow Giant Quadruple", appMag: 0.08, absMag: -0.48, dist: "42.9 LY", temp: "4,970 K", lum: "78.7 L☉", mass: "2.57 M☉", radius: "11.9 R☉", ra: "05h 16m 41.4s", dec: "+45° 59' 53\"", x: -260, y: -380, size: 4.1 },
+      { id: "procyon", name: "Procyon", bayer: "Alpha Canis Minoris", const: "Canis Minor", class: "F5IV-V Yellow-White Subgiant", appMag: 0.34, absMag: 2.66, dist: "11.46 LY", temp: "6,530 K", lum: "6.93 L☉", mass: "1.50 M☉", radius: "2.05 R☉", ra: "07h 39m 18.1s", dec: "+05° 13' 30\"", x: -120, y: 60, size: 3.9 },
+      { id: "spica", name: "Spica", bayer: "Alpha Virginis", const: "Virgo", class: "B1III-IV Blue Giant", appMag: 0.97, absMag: -3.55, dist: "250 LY", temp: "25,300 K", lum: "12,100 L☉", mass: "11.43 M☉", radius: "7.47 R☉", ra: "13h 25m 11.6s", dec: "-11° 09' 41\"", x: 300, y: 150, size: 4.0 },
+      { id: "pollux", name: "Pollux", bayer: "Beta Geminorum", const: "Gemini", class: "K0III Orange Giant", appMag: 1.14, absMag: 1.08, dist: "33.78 LY", temp: "4,666 K", lum: "32.7 L☉", mass: "1.91 M☉", radius: "8.80 R☉", ra: "07h 45m 18.9s", dec: "+28° 01' 34\"", x: -80, y: -220, size: 3.7 },
+      { id: "deneb", name: "Deneb", bayer: "Alpha Cygni", const: "Cygnus", class: "A2Ia White Supergiant", appMag: 1.25, absMag: -8.38, dist: "2,615 LY", temp: "8,525 K", lum: "196,000 L☉", mass: "19.0 M☉", radius: "203 R☉", ra: "20h 41m 25.9s", dec: "+45° 16' 49\"", x: 450, y: -350, size: 4.6 },
+      { id: "regulus", name: "Regulus", bayer: "Alpha Leonis", const: "Leo", class: "B8IVn Blue Subgiant", appMag: 1.36, absMag: -0.52, dist: "79.3 LY", temp: "12,460 K", lum: "288 L☉", mass: "3.80 M☉", radius: "3.15 R☉", ra: "10h 08m 22.3s", dec: "+11° 58' 02\"", x: 110, y: -50, size: 3.8 },
+      { id: "fomalhaut", name: "Fomalhaut", bayer: "Alpha Piscis Austrini", const: "Piscis Austrinus", class: "A3V White Main Seq", appMag: 1.17, absMag: 1.74, dist: "25.13 LY", temp: "8,590 K", lum: "16.6 L☉", mass: "1.92 M☉", radius: "1.84 R☉", ra: "22h 57m 39.1s", dec: "-29° 37' 20\"", x: 180, y: 380, size: 3.6 },
+      { id: "bellatrix", name: "Bellatrix", bayer: "Gamma Orionis", const: "Orion", class: "B2III Blue Giant", appMag: 1.64, absMag: -2.72, dist: "250 LY", temp: "22,000 K", lum: "9,211 L☉", mass: "7.7 M☉", radius: "5.75 R☉", ra: "05h 25m 07.9s", dec: "+06° 20' 59\"", x: -210, y: -190, size: 3.5 },
+      { id: "altair", name: "Altair", bayer: "Alpha Aquilae", const: "Aquila", class: "A7V Rapid Rotator White", appMag: 0.77, absMag: 2.22, dist: "16.73 LY", temp: "7,550 K", lum: "10.6 L☉", mass: "1.79 M☉", radius: "1.63 R☉", ra: "19h 50m 47.0s", dec: "+08° 52' 06\"", x: 380, y: -100, size: 4.1 },
+      { id: "algol", name: "Algol (Demon Star)", bayer: "Beta Persei", const: "Perseus", class: "B8V Eclipsing Binary", appMag: 2.12, absMag: -0.10, dist: "90 LY", temp: "13,000 K", lum: "182 L☉", mass: "3.17 M☉", radius: "2.73 R☉", ra: "03h 08m 10.1s", dec: "+40° 57' 20\"", x: -420, y: -310, size: 3.4 }
+    ];
+
+    /**
+     * GENERATE PROCEDURAL BACKGROUND STARS
+     */
+    const BACKGROUND_STARS = [];
+    const NUM_BG_STARS = 600;
+    for (let i = 0; i < NUM_BG_STARS; i++) {
+      BACKGROUND_STARS.push({
+        x: (Math.random() - 0.5) * 2400,
+        y: (Math.random() - 0.5) * 2400,
+        size: Math.random() * 1.5 + 0.5,
+        alpha: Math.random() * 0.7 + 0.3,
+        twinkleSpeed: Math.random() * 0.03 + 0.005,
+        twinkleOffset: Math.random() * Math.PI * 2
+      });
+    }
+
+    /**
+     * APPLICATION STATE & CANVAS ENGINE
+     */
+    const canvas = document.getElementById('observatoryCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let camera = {
+      x: 0,
+      y: 0,
+      zoom: 1.0,
+      targetX: 0,
+      targetY: 0,
+      targetZoom: 1.0,
+      minZoom: 0.5,
+      maxZoom: 8.0,
+      isAnimating: false
+    };
+
+    let selectedStar = null;
+    let hoveredStar = null;
+
+    // Interaction flags
+    let isDragging = false;
+    let dragStart = { x: 0, y: 0 };
+    let cameraStart = { x: 0, y: 0 };
+    let touchDistance = 0;
+
+    /**
+     * RESIZE CANVAS TO FIT SCREEN
+     */
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    /**
+     * COORDINATE CONVERSIONS
+     */
+    function worldToScreen(worldX, worldY) {
+      const screenX = (worldX - camera.x) * camera.zoom + canvas.width / 2;
+      const screenY = (worldY - camera.y) * camera.zoom + canvas.height / 2;
+      return { x: screenX, y: screenY };
+    }
+
+    function screenToWorld(screenX, screenY) {
+      const worldX = (screenX - canvas.width / 2) / camera.zoom + camera.x;
+      const worldY = (screenY - canvas.height / 2) / camera.zoom + camera.y;
+      return { x: worldX, y: worldY };
+    }
+
+    /**
+     * RENDER LOOP
+     */
+    function render(timestamp) {
+      // Smooth Camera Animation Interpolation
+      camera.x += (camera.targetX - camera.x) * 0.1;
+      camera.y += (camera.targetY - camera.y) * 0.1;
+      camera.zoom += (camera.targetZoom - camera.zoom) * 0.1;
+
+      // Update Telemetry UI
+      document.getElementById('telemetryZoom').innerText = camera.zoom.toFixed(2) + 'x';
+      const centerWorld = screenToWorld(canvas.width / 2, canvas.height / 2);
+      const fakeRAHours = Math.floor((Math.abs(centerWorld.x) % 360) / 15);
+      const fakeRAMins = Math.floor((Math.abs(centerWorld.x) % 15) * 4);
+      const fakeDECDeg = Math.floor((centerWorld.y / 10) % 90);
+      document.getElementById('telemetryRA').innerText = `${String(fakeRAHours).padStart(2, '0')}h ${String(fakeRAMins).padStart(2, '0')}m`;
+      document.getElementById('telemetryDEC').innerText = `${fakeDECDeg >= 0 ? '+' : ''}${fakeDECDeg}° 00'`;
+      document.getElementById('telemetryCount').innerText = MAJOR_STARS.length + BACKGROUND_STARS.length;
+
+      // Clear Screen (Black Void)
+      ctx.fillStyle = '#030303';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Draw Grid Lines (Futuristic Grid)
+      drawGrid();
+
+      // Draw Procedural Background Stars
+      ctx.fillStyle = '#ffffff';
+      for (const star of BACKGROUND_STARS) {
+        const screen = worldToScreen(star.x, star.y);
+        // Frustum Culling
+        if (screen.x >= -10 && screen.x <= canvas.width + 10 && screen.y >= -10 && screen.y <= canvas.height + 10) {
+          const twinkle = Math.sin(timestamp * star.twinkleSpeed + star.twinkleOffset) * 0.3 + 0.7;
+          ctx.globalAlpha = star.alpha * twinkle;
+          ctx.beginPath();
+          ctx.arc(screen.x, screen.y, star.size * Math.min(camera.zoom, 2), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1.0;
+
+      // Draw Constellation Connecting Lines (Subtle Monochrome Lines)
+      drawConstellationLines();
+
+      // Draw Major Interactive Stars
+      for (const star of MAJOR_STARS) {
+        const screen = worldToScreen(star.x, star.y);
+
+        if (screen.x >= -50 && screen.x <= canvas.width + 50 && screen.y >= -50 && screen.y <= canvas.height + 50) {
+          const isSelected = selectedStar && selectedStar.id === star.id;
+          const isHovered = hoveredStar && hoveredStar.id === star.id;
+
+          // Glowing Outer Halo
+          const haloRadius = (star.size * camera.zoom) + (isSelected ? 16 : (isHovered ? 10 : 4));
+          const gradient = ctx.createRadialGradient(screen.x, screen.y, star.size, screen.x, screen.y, haloRadius);
+          gradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+          gradient.addColorStop(0.4, 'rgba(200, 200, 200, 0.3)');
+          gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.arc(screen.x, screen.y, haloRadius, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Core Star Body
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(screen.x, screen.y, Math.max(star.size * (camera.zoom * 0.4 + 0.6), 2), 0, Math.PI * 2);
+          ctx.fill();
+
+          // Text Label
+          if (camera.zoom > 0.8 || isSelected || isHovered) {
+            ctx.font = isSelected ? '700 12px "Space Mono"' : '400 10px "Space Mono"';
+            ctx.fillStyle = isSelected ? '#ffffff' : '#a1a1aa';
+            ctx.fillText(star.name.toUpperCase(), screen.x + haloRadius * 0.6 + 4, screen.y + 3);
+          }
+
+          // Target Reticle for Selected Star
+          if (isSelected) {
+            drawSelectionReticle(screen.x, screen.y, timestamp);
+          }
+        }
+      }
+
+      requestAnimationFrame(render);
+    }
+
+    /**
+     * DRAW FUTURISTIC HUD GRID LINES
+     */
+    function drawGrid() {
+      const gridSize = 100 * camera.zoom;
+      const offsetX = (canvas.width / 2 - camera.x * camera.zoom) % gridSize;
+      const offsetY = (canvas.height / 2 - camera.y * camera.zoom) % gridSize;
+
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+      ctx.lineWidth = 1;
+
+      // Vertical lines
+      for (let x = offsetX; x < canvas.width; x += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+
+      // Horizontal lines
+      for (let y = offsetY; y < canvas.height; y += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+    }
+
+    /**
+     * DRAW CONSTELLATION LINES (MONOCHROME)
+     */
+    function drawConstellationLines() {
+      const connections = [
+        ["betelgeuse", "bellatrix"],
+        ["betelgeuse", "rigel"],
+        ["sirius", "procyon"],
+        ["vega", "deneb"],
+        ["vega", "altair"],
+        ["deneb", "altair"], // Summer Triangle
+        ["pollux", "regulus"],
+        ["arcturus", "spica"]
+      ];
+
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+
+      for (const [id1, id2] of connections) {
+        const s1 = MAJOR_STARS.find(s => s.id === id1);
+        const s2 = MAJOR_STARS.find(s => s.id === id2);
+        if (s1 && s2) {
+          const p1 = worldToScreen(s1.x, s1.y);
+          const p2 = worldToScreen(s2.x, s2.y);
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.stroke();
+        }
+      }
+      ctx.setLineDash([]);
+    }
+
+    /**
+     * TARGET SELECTION RETICLE ANIMATION
+     */
+    function drawSelectionReticle(x, y, timestamp) {
+      const radius = 24;
+      const angle = (timestamp * 0.001) % (Math.PI * 2);
+
+      ctx.save();
+      ctx.translate(x, y);
+
+      // Rotating Outer Ring
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, angle, angle + Math.PI * 1.5);
+      ctx.stroke();
+
+      // Corner Crosshairs
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      const len = 6;
+      ctx.beginPath();
+      ctx.moveTo(-radius - 4, 0); ctx.lineTo(-radius + len, 0);
+      ctx.moveTo(radius + 4, 0); ctx.lineTo(radius - len, 0);
+      ctx.moveTo(0, -radius - 4); ctx.lineTo(0, -radius + len);
+      ctx.moveTo(0, radius + 4); ctx.lineTo(0, radius - len);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    /**
+     * INTERACTIVE STAR COLLISION DETECTION
+     */
+    function findStarAt(screenX, screenY) {
+      const world = screenToWorld(screenX, screenY);
+      const clickRadius = 25 / camera.zoom; // Touch tolerance scale
+
+      for (const star of MAJOR_STARS) {
+        const dx = star.x - world.x;
+        const dy = star.y - world.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist <= clickRadius) {
+          return star;
+        }
+      }
+      return null;
+    }
+
+    /**
+     * SELECT STAR & FOCUS CAMERA
+     */
+    function selectStar(star) {
+      if (!star) return;
+      selectedStar = star;
+
+      // Smoothly pan camera directly to star and zoom in (up to 3.5x for target inspection)
+      camera.targetX = star.x;
+      camera.targetY = star.y;
+      camera.targetZoom = Math.max(camera.zoom, 3.2);
+
+      // Trigger Web Audio synth tone shift
+      playCelestialNote(star);
+
+      // Populate Inspector Drawer
+      document.getElementById('starName').innerText = star.name;
+      document.getElementById('starBayer').innerText = star.bayer;
+      document.getElementById('starClass').innerText = star.class;
+      document.getElementById('starConst').innerText = star.const;
+      document.getElementById('starAppMag').innerText = star.appMag;
+      document.getElementById('starDistance').innerText = star.dist;
+      document.getElementById('starTemp').innerText = star.temp;
+      document.getElementById('starLum').innerText = star.lum;
+      document.getElementById('starMassRadius').innerText = `${star.mass} / ${star.radius}`;
+      document.getElementById('starRADEC').innerText = `${star.ra} / ${star.dec}`;
+
+      // Show Inspector Drawer
+      const drawer = document.getElementById('inspectorDrawer');
+      drawer.classList.remove('translate-y-full', 'opacity-0', 'pointer-events-none');
+
+      // Trigger AI Deep Sky Intelligence Analysis
+      generateStarAiAnalysis(star);
+    }
+
+    /**
+     * DYNAMIC GEMINI AI ASTRO-ANALYSIS VIA INLINE API CALL
+     */
+    async function generateStarAiAnalysis(star) {
+      const container = document.getElementById('aiStarAnalysis');
+      container.innerHTML = `
+        <div class="flex items-center space-x-2 text-zinc-400">
+          <i class="fas fa-spinner fa-spin text-xs"></i>
+          <span>Synthesizing deep sky astrophysical breakdown...</span>
+        </div>
+      `;
+
+      const prompt = `Provide a concise, high-tech scientific breakdown and astrophysics briefing for the star ${star.name} (${star.bayer}) located in constellation ${star.const}. Include details about its spectral type (${star.class}), stellar evolutionary status, cultural/historical lore, and planetary system probability. Keep the tone academic, crisp, and futuristic (max 90 words). Do not use markdown headers or lists.`;
+
+      try {
+        const apiKey = ""; // Canvas runtime environment automatically provides key
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+        const payload = {
+          contents: [{ parts: [{ text: prompt }] }],
+          systemInstruction: {
+            parts: [{ text: "You are an advanced AI observatory supercomputer called AETHERIS. Respond in concise, authoritative, monochrome sci-fi astrophysics terminology." }]
+          }
+        };
+
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (text) {
+          container.innerHTML = `<p class="text-zinc-200">${text}</p>`;
+        } else {
+          container.innerHTML = `<span class="text-zinc-400">Analysis completed. Standard main-sequence evolutionary dynamics detected.</span>`;
+        }
+      } catch (err) {
+        console.error("AI Analysis Error:", err);
+        container.innerHTML = `<span class="text-zinc-400">Spectral data stream archived. Distance: ${star.dist}, Temp: ${star.temp}.</span>`;
+      }
+    }
+
+    /**
+     * EVENT LISTENERS: MOUSE & TOUCH CONTROLS (PAN & ZOOM)
+     */
+    // Mouse Wheel Zoom
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
+      const newZoom = Math.min(Math.max(camera.targetZoom * zoomFactor, camera.minZoom), camera.maxZoom);
+      camera.targetZoom = newZoom;
+    }, { passive: false });
+
+    // Mouse Down
+    canvas.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      dragStart = { x: e.clientX, y: e.clientY };
+      cameraStart = { x: camera.targetX, y: camera.targetY };
+    });
+
+    // Mouse Move
+    canvas.addEventListener('mousemove', (e) => {
+      if (isDragging) {
+        const dx = (e.clientX - dragStart.x) / camera.zoom;
+        const dy = (e.clientY - dragStart.y) / camera.zoom;
+        camera.targetX = cameraStart.x - dx;
+        camera.targetY = cameraStart.y - dy;
+      } else {
+        // Hover star detection
+        hoveredStar = findStarAt(e.clientX, e.clientY);
+        canvas.style.cursor = hoveredStar ? 'pointer' : 'crosshair';
+      }
+    });
+
+    // Mouse Up / Click
+    canvas.addEventListener('mouseup', (e) => {
+      const distDragged = Math.hypot(e.clientX - dragStart.x, e.clientY - dragStart.y);
+      if (distDragged < 5) {
+        // It's a tap/click
+        const clickedStar = findStarAt(e.clientX, e.clientY);
+        if (clickedStar) {
+          selectStar(clickedStar);
+        }
+      }
+      isDragging = false;
+    });
+
+    // Touch Event Handlers (Pinch Zoom & Drag Pan)
+    canvas.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        isDragging = true;
+        dragStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        cameraStart = { x: camera.targetX, y: camera.targetY };
+      } else if (e.touches.length === 2) {
+        isDragging = false;
+        touchDistance = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+      }
+    }, { passive: true });
+
+    canvas.addEventListener('touchmove', (e) => {
+      if (isDragging && e.touches.length === 1) {
+        const dx = (e.touches[0].clientX - dragStart.x) / camera.zoom;
+        const dy = (e.touches[0].clientY - dragStart.y) / camera.zoom;
+        camera.targetX = cameraStart.x - dx;
+        camera.targetY = cameraStart.y - dy;
+      } else if (e.touches.length === 2) {
+        const newDist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        const factor = newDist / (touchDistance || newDist);
+        camera.targetZoom = Math.min(Math.max(camera.targetZoom * factor, camera.minZoom), camera.maxZoom);
+        touchDistance = newDist;
+      }
+    }, { passive: true });
+
+    canvas.addEventListener('touchend', (e) => {
+      if (e.changedTouches.length === 1 && isDragging) {
+        const distDragged = Math.hypot(
+          e.changedTouches[0].clientX - dragStart.x,
+          e.changedTouches[0].clientY - dragStart.y
+        );
+        if (distDragged < 10) {
+          const touchedStar = findStarAt(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+          if (touchedStar) {
+            selectStar(touchedStar);
+          }
+        }
+      }
+      isDragging = false;
+    });
+
+    /**
+     * FLOATING HUD BUTTON CONTROLS
+     */
+    document.getElementById('btnZoomIn').addEventListener('click', () => {
+      camera.targetZoom = Math.min(camera.targetZoom * 1.4, camera.maxZoom);
+    });
+    document.getElementById('btnZoomOut').addEventListener('click', () => {
+      camera.targetZoom = Math.max(camera.targetZoom / 1.4, camera.minZoom);
+    });
+    document.getElementById('btnResetView').addEventListener('click', () => {
+      camera.targetX = 0;
+      camera.targetY = 0;
+      camera.targetZoom = 1.0;
+    });
+    document.getElementById('btnRecenter').addEventListener('click', () => {
+      if (selectedStar) {
+        camera.targetX = selectedStar.x;
+        camera.targetY = selectedStar.y;
+      } else {
+        camera.targetX = 0;
+        camera.targetY = 0;
+      }
+    });
+
+    // Close Inspector
+    document.getElementById('closeInspectorBtn').addEventListener('click', () => {
+      document.getElementById('inspectorDrawer').classList.add('translate-y-full', 'opacity-0', 'pointer-events-none');
+      selectedStar = null;
+    });
+
+    /**
+     * LIVE GEMINI AI ASSISTANT CHAT DRAWER
+     */
+    const aiChatDrawer = document.getElementById('aiChatDrawer');
+    const aiChatToggleBtn = document.getElementById('aiChatToggleBtn');
+    const closeAiChatBtn = document.getElementById('closeAiChatBtn');
+    const aiChatForm = document.getElementById('aiChatForm');
+    const aiChatInput = document.getElementById('aiChatInput');
+    const chatMessages = document.getElementById('chatMessages');
+
+    aiChatToggleBtn.addEventListener('click', () => {
+      const isHidden = aiChatDrawer.classList.contains('translate-x-full');
+      if (isHidden) {
+        aiChatDrawer.classList.remove('translate-x-full', 'opacity-0', 'pointer-events-none');
+      } else {
+        aiChatDrawer.classList.add('translate-x-full', 'opacity-0', 'pointer-events-none');
+      }
+    });
+
+    closeAiChatBtn.addEventListener('click', () => {
+      aiChatDrawer.classList.add('translate-x-full', 'opacity-0', 'pointer-events-none');
+    });
+
+    aiChatForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const query = aiChatInput.value.trim();
+      if (!query) return;
+
+      // Append User Message
+      chatMessages.innerHTML += `
+        <div class="bg-zinc-800/80 p-2.5 rounded-lg border border-zinc-700 text-white self-end">
+          <span class="text-zinc-400 font-bold block text-[10px] uppercase">Observer Query</span>
+          ${query}
+        </div>
+      `;
+      aiChatInput.value = '';
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+
+      // Add Loading Placeholder
+      const loadingId = 'loading-' + Date.now();
+      chatMessages.innerHTML += `
+        <div id="${loadingId}" class="bg-zinc-900/90 p-2.5 rounded-lg border border-zinc-800 text-zinc-400 flex items-center space-x-2">
+          <i class="fas fa-circle-notch fa-spin"></i>
+          <span>Querying Gemini 2.5 Astro-Engine...</span>
+        </div>
+      `;
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+
+      // Call Gemini Chat API
+      try {
+        const apiKey = "";
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+
+        const contextStar = selectedStar ? `Currently focused on star: ${selectedStar.name} (${selectedStar.class}).` : "Observatory is in deep wide field view.";
+        
+        const payload = {
+          contents: [{ parts: [{ text: `${contextStar} User asked: ${query}` }] }],
+          systemInstruction: {
+            parts: [{ text: "You are the primary AI intelligence for AETHERIS deep sky observatory. Answer astrophysics, space, stellar mechanics, and astronomical questions concisely with scientific accuracy." }]
+          }
+        };
+
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "Unable to parse stellar query telemetry.";
+
+        document.getElementById(loadingId).remove();
+        chatMessages.innerHTML += `
+          <div class="bg-zinc-900/90 p-2.5 rounded-lg border border-zinc-800 text-zinc-200">
+            <span class="text-white font-bold block text-[10px] uppercase tracking-wider mb-1">AETHERIS AI</span>
+            ${reply}
+          </div>
+        `;
+      } catch (err) {
+        document.getElementById(loadingId).remove();
+        chatMessages.innerHTML += `
+          <div class="bg-zinc-900/90 p-2.5 rounded-lg border border-zinc-800 text-red-400">
+            Telemetry Connection Error: ${err.message}
+          </div>
+        `;
+      }
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    });
+
+    /**
+     * REAL-TIME CLOCK LOGIC
+     */
+    function updateClocks() {
+      const now = new Date();
+      document.getElementById('clockUTC').innerText = now.toUTCString().split(' ')[4];
+
+      // Simulated Sidereal Time calculation
+      const lstSeconds = (now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds()) * 1.0027379;
+      const h = Math.floor((lstSeconds / 3600) % 24);
+      const m = Math.floor((lstSeconds % 3600) / 60);
+      const s = Math.floor(lstSeconds % 60);
+      document.getElementById('clockLST').innerText = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+    setInterval(updateClocks, 1000);
+    updateClocks();
+
+    /**
+     * WEB AUDIO CELESTIAL SYNTHESIZER
+     */
+    let audioCtx = null;
+    let isAudioPlaying = false;
+    let droneOsc = null;
+    let droneGain = null;
+
+    function initAudio() {
+      if (audioCtx) return;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+      // Sub drone sound oscillator
+      droneOsc = audioCtx.createOscillator();
+      droneGain = audioCtx.createGain();
+
+      droneOsc.type = 'sine';
+      droneOsc.frequency.setValueAtTime(55, audioCtx.currentTime); // Low A note drone
+      droneGain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+
+      droneOsc.connect(droneGain);
+      droneGain.connect(audioCtx.destination);
+      droneOsc.start();
+      isAudioPlaying = true;
+
+      document.getElementById('audioIcon').className = "fas fa-volume-high text-white";
+    }
+
+    function toggleAudio() {
+      if (!audioCtx) {
+        initAudio();
+        return;
+      }
+      if (isAudioPlaying) {
+        audioCtx.suspend();
+        isAudioPlaying = false;
+        document.getElementById('audioIcon').className = "fas fa-volume-xmark";
+      } else {
+        audioCtx.resume();
+        isAudioPlaying = true;
+        document.getElementById('audioIcon').className = "fas fa-volume-high text-white";
+      }
+    }
+
+    function playCelestialNote(star) {
+      if (!audioCtx || !isAudioPlaying) return;
+
+      // Frequency mapped roughly from star temperature
+      const tempNum = parseInt(star.temp.replace(/[^0-9]/g, '')) || 5000;
+      const freq = 150 + (tempNum / 30000) * 600;
+
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 2.5);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start();
+      osc.stop(audioCtx.currentTime + 2.5);
+    }
+
+    document.getElementById('audioToggleBtn').addEventListener('click', toggleAudio);
+
+    // START ANIMATION RENDER LOOP
+    window.onload = () => {
+      requestAnimationFrame(render);
+    };
+  </script>
+</body>
+</html>
